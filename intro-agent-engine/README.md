@@ -41,11 +41,20 @@ Then run the scripts:
 * A managed container build (similar to Cloud Functions)
 * An Agent Engine instance queryable via Python SDK or curl
 
+## Feature parity with ADK
+
+The [ADK experiment](../agent-engine-adk) gets sessions, memory, tracing, and a playground UI for free — they are built into the ADK framework and Agent Engine supports them natively. Reaching the same capabilities here requires significant additional work:
+
+* **Sessions** — `LangchainAgent.query()` is stateless. Adding session history requires switching to LangGraph (also supported by Agent Engine) or managing conversation state in an external store (e.g. Firestore) and injecting it on every call.
+* **Memory** — ADK's `MemoryService` persists facts across sessions automatically. LangChain memory modules have no equivalent integration with Agent Engine's session store; external storage must be wired up manually.
+* **Tracing** — ADK instruments with Cloud Trace out of the box. LangChain tracing runs through LangSmith (separate SaaS). Adding Cloud Trace requires manual OpenTelemetry instrumentation.
+* **Playground** — `adk web` and the Agent Engine console playground are ADK-specific. The LangChain equivalent is LangSmith's playground, a different ecosystem entirely.
+
+If these features matter, migrating to ADK (as in `agent-engine-adk`) is lower effort than adding them here.
+
 ## Questions
 
 * What is an agent gateway?
 * How could a public web service host it securely?
 * What is Agent Armor?
-* How to enable sessions?
-* How to persist with memories?
 * How to run evals?
