@@ -11,8 +11,8 @@ import vertexai
 from google.adk.agents import Agent
 from vertexai import agent_engines
 
-PROJECT = "system-alexb-art-ed9d"
-REGION = "europe-west2"
+PROJECT = os.environ["GOOGLE_CLOUD_PROJECT"]
+REGION = os.environ["GOOGLE_CLOUD_LOCATION"]
 GATEWAY_NAME = "currency-agent-gateway"
 
 
@@ -64,11 +64,7 @@ client.agent_engines.update(
         "staging_bucket": os.environ["STAGING_BUCKET"],
         "requirements": ["google-cloud-aiplatform[agent_engines,adk]"],
         "identity_type": "AGENT_IDENTITY",
-        "agent_gateway_config": {
-            "client_to_agent_config": {
-                "agent_gateway": gateway_resource_name,
-            }
-        },
+        "agent_gateway_config": {"client_to_agent_config": {"agent_gateway": gateway_resource_name}},
     },
 )
 print(f"Bound {AGENT_ENGINE_RESOURCE_NAME} to gateway {gateway_resource_name}")
