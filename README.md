@@ -3,6 +3,7 @@
 * [Agent Runtime Intro (LangChain)](./intro-agent-runtime/README.md)
 * [Agent Development Kit Python Quickstart](./intro-adk/README.md)
 * [Agent Runtime + ADK Example](./agent-runtime-adk/README.md)
+* [Agent Gateway + Model Armor](./agent-gateway-armor/README.md)
 
 ## Further Reading
 

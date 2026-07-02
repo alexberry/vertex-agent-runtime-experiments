@@ -54,7 +54,6 @@ If these features matter, migrating to ADK (as in `agent-runtime-adk`) is lower 
 
 ## Questions
 
-* What is an agent gateway?
-* How could a public web service host it securely?
-* What is Agent Armor?
+* [What is an agent gateway? How could a public web service host it securely?](../agent-gateway-armor/README.md#questions-answered)
+* [What is Agent Armor?](../agent-gateway-armor/README.md#questions-answered)
 * How to run evals?
