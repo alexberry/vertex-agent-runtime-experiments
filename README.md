@@ -11,4 +11,4 @@
   * seemingly creates agent runtime interfaces via the agent runtime api, but backs the function/tool runtime on gke
     * is this lower latency startup?
     * how does this work with agent gateway, given the example uses gateway api?
-* [Agent Skills on Github][https://github.com/google/agents-cli#agent-skills]
+* [Agent Skills on Github](https://github.com/google/agents-cli#agent-skills)
