@@ -1,6 +1,6 @@
-# Agent Engine + ADK
+# Agent Runtime + ADK
 
-Based on [GCP's ADK Quickstart](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/runtime/quickstart-adk). Implements the same currency exchange service as [intro-agent-engine](../intro-agent-engine/) using ADK instead of LangChain.
+Based on [GCP's ADK Quickstart](https://docs.cloud.google.com/gemini-enterprise-agent-platform/build/runtime/quickstart-adk). Implements the same currency exchange service as [intro-agent-runtime](../intro-agent-runtime/) using ADK instead of LangChain.
 
 ## Prerequisites
 
@@ -10,8 +10,8 @@ Based on [GCP's ADK Quickstart](https://docs.cloud.google.com/gemini-enterprise-
 ## Setup
 
 ```bash
-pyenv virtualenv 3.14 agent-engine-adk
-pyenv activate agent-engine-adk
+pyenv virtualenv 3.14 agent-runtime-adk
+pyenv activate agent-runtime-adk
 pip install -r requirements.txt
 ```
 
@@ -28,7 +28,7 @@ export STAGING_BUCKET=gs://alexb-art-staging-bucket-adk
 Then run the scripts:
 
 ```bash
-./create.py   # Package and deploy agent to Agent Engine
+./create.py   # Package and deploy agent to Agent Runtime
 ./test.py     # Query the deployed agent
 ./delete.py   # Tear down the agent
 ```
@@ -37,14 +37,14 @@ Then run the scripts:
 
 * Artifacts in the staging bucket (pkl, requirements, tarball)
 * A managed container build (similar to Cloud Functions)
-* An Agent Engine instance queryable via Python SDK or curl
+* An Agent Runtime instance queryable via Python SDK or curl
 
 ## ADK extras
 
-The ADK integration automatically instruments:
+ADK on Agent Runtime automatically provides:
 
-* Traces
-* Sessions
-* A playground UI (interactive equivalent of `test.py`)
+* **Cloud Trace** — distributed tracing via OpenTelemetry; spans appear in Cloud Console immediately with no configuration required
+* **Sessions** — managed session state; `test.py` uses `create_session` / `stream_query` / `delete_session`
+* **Playground UI** — interactive equivalent of `test.py`, no code needed
 
 These are accessible via the [Agent Platform console](https://console.cloud.google.com/agent-platform/runtimes?project=system-alexb-art-ed9d).
