@@ -45,7 +45,8 @@ Hands-on experiments with Vertex AI Agent Runtime, ADK, Agent Gateway, and GKE s
 | Question | Status |
 |---|---|
 | Kubernetes Gateway API vs. Agent Gateway | Answered — entirely unrelated products at different layers; see [the README](./agent-runtime-gke/README.md#gateway-api-vs-agent-gateway) |
-| Can Agent Gateway govern a GKE-hosted agent? | Answered (no) — enforcement anchors to a Vertex AI Reasoning Engine resource, which has no GKE equivalent; in-process `before_model_callback` implemented as workaround |
+| Can Agent Gateway govern a GKE-hosted agent? | Answered (no) — enforcement anchors to a Vertex AI Reasoning Engine resource, which has no GKE equivalent |
+| Model Armor via `GCPTrafficExtension` at LB layer | Partially achieved — extension is programmed and wired to the gateway; however Model Armor's LB integration only parses OpenAI-format request bodies (`messages[].content`). ADK's `/run` body schema (`new_message.parts[].text`) is not recognised, so prompt injection is not screened at the gateway. The model's own trained safety guardrails still refuse such prompts, but enforcement is in-process rather than at the network layer. See [the README](./agent-runtime-gke/README.md#governance-options) for the full analysis. |
 | GKE cold-start vs. managed Agent Runtime latency | Not measured — infrastructure is live but comparison values were never collected |
 
 ## Further Reading

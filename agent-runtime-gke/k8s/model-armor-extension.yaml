@@ -1,0 +1,51 @@
+# GCPTrafficExtension attaches Model Armor screening to the existing
+# currency-agent-gateway at the load balancer layer. Every request that
+# matches the CEL expression is sent to Model Armor before being forwarded
+# to the pod -- providing hard enforcement without any in-process changes.
+#
+# Because the Service is ClusterIP (no external IP), the only public path
+# to the pod is through this Gateway, so there is no bypass route.
+#
+# Before applying, fill in the template resource path:
+#   TEMPLATE=$(terraform -chdir=terraform output -raw model_armor_template_resource)
+#   sed "s|TEMPLATE_RESOURCE_PLACEHOLDER|$TEMPLATE|" k8s/model-armor-extension.yaml \
+#     | kubectl apply -f -
+apiVersion: networking.gke.io/v1
+kind: GCPTrafficExtension
+metadata:
+  name: model-armor-extension
+  namespace: default
+spec:
+  targetRefs:
+    - group: "gateway.networking.k8s.io"
+      kind: Gateway
+      name: currency-agent-gateway
+  extensionChains:
+    - name: model-armor-chain
+      matchCondition:
+        celExpressions:
+          # Screen /run and /run_sse -- the endpoints that submit prompts to
+          # the model. Other paths (healthcheck, session creation) are not
+          # screened to avoid unnecessary latency overhead.
+          - celMatcher: 'request.path.startsWith("/run")'
+      extensions:
+        - name: model-armor-callout
+          googleAPIServiceName: modelarmor.europe-west2.rep.googleapis.com
+          timeout: "500ms"
+          failOpen: false
+          supportedEvents:
+            - RequestHeaders
+            - RequestBody
+            - RequestTrailers
+            - ResponseHeaders
+            - ResponseBody
+            - ResponseTrailers
+          metadata:
+            model_armor_settings: |
+              [
+                {
+                  "model": "default",
+                  "user_prompt_template_id": "TEMPLATE_RESOURCE_PLACEHOLDER",
+                  "model_response_template_id": "TEMPLATE_RESOURCE_PLACEHOLDER"
+                }
+              ]

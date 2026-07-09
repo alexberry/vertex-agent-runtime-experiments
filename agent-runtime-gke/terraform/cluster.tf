@@ -12,6 +12,19 @@ resource "google_compute_subnetwork" "agent_runtime" {
   ip_cidr_range = "10.0.0.0/20"
 }
 
+# Required for gke-l7-regional-external-managed Gateway class.
+# Regional Application Load Balancers proxy traffic through Google-managed
+# Envoy instances in this subnet -- it must exist before the Gateway is
+# programmed. /23 is the minimum recommended size.
+resource "google_compute_subnetwork" "proxy_only" {
+  name          = "${var.cluster_name}-proxy"
+  region        = var.region
+  network       = google_compute_network.agent_runtime.id
+  ip_cidr_range = "10.0.16.0/23"
+  purpose       = "REGIONAL_MANAGED_PROXY"
+  role          = "ACTIVE"
+}
+
 resource "google_container_cluster" "agent_runtime" {
   name       = var.cluster_name
   location   = var.region

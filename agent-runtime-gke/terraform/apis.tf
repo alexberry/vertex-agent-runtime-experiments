@@ -22,3 +22,9 @@ resource "google_project_service" "iam_credentials" {
   service            = "iamcredentials.googleapis.com"
   disable_on_destroy = false
 }
+
+resource "google_project_service" "model_armor" {
+  project            = var.project
+  service            = "modelarmor.googleapis.com"
+  disable_on_destroy = false
+}

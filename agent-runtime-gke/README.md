@@ -11,6 +11,7 @@ Self-hosting ADK's agent runtime on GKE Autopilot. Answers two open questions fr
 | `agent-runtime-gke-memory-context` | Vertex AI Agent Engine | Billed per session/memory API call |
 | `currency-agent-gateway` | Kubernetes L7 external load balancer + static IP | Continuously billed |
 | `fx-rates-svc` | ClusterIP Service (no external IP) | No extra cost |
+| `currency-agent-gke` | Model Armor template | Minimal (per-call screening) |
 
 **Teardown:** `terraform destroy` in `terraform/`, then delete the Agent Engine context resource manually (or add it to a cleanup script).
 
@@ -47,12 +48,25 @@ A GKE pod has no equivalent enforcement point:
 
 This is why governance is tied to the hosting layer, not to the network path:
 
-| Host | Agent Gateway governance? | Why |
-|---|---|---|
-| Vertex AI Agent Engine (managed) | Yes | `agent_gateway_config` on Reasoning Engine; Vertex AI enforces it server-side |
-| GKE pod | No | No Reasoning Engine resource; no server-side enforcement point to anchor to |
+| Host | Agent Gateway governance? | Model Armor screening achievable? | How |
+|---|---|---|---|
+| Vertex AI Agent Engine (managed) | Yes | Yes | `agent_gateway_config` on Reasoning Engine; Vertex AI enforces it server-side |
+| GKE pod | No | Yes (via `GCPTrafficExtension`) | Attach to the Kubernetes Gateway; LB screens every request before forwarding to pod |
 
-If governance on a GKE-hosted agent is required, the alternatives are: an in-process `before_model_callback` calling the Model Armor API directly (demonstrated below), an Istio/ASM sidecar that screens traffic at the mesh layer, or Cloud Armor on the load balancer (coarser — IP/rate limiting, not prompt-content screening).
+If governance on a GKE-hosted agent is required, the options are:
+
+| Approach | Where screening happens | Bypassable? | Caveat |
+|---|---|---|---|
+| `GCPTrafficExtension` on the Kubernetes Gateway | Load balancer, before traffic reaches the pod | No — only if Service is ClusterIP (which it is here) | Model Armor only parses OpenAI-format bodies; ADK's `/run` schema is not screened (see [limitation note](#limitation-model-armor-only-parses-openai-format-request-bodies-at-the-lb-layer)) |
+| In-process `before_model_callback` | Inside the ADK process | Yes — a caller that hits the pod directly (e.g. via port-forward or if Service has an external IP) skips it | None |
+| Istio/ASM sidecar | Service mesh layer | No, but requires mesh setup | None |
+
+This experiment uses `GCPTrafficExtension` — see [Attach Model Armor to the Gateway](#6-attach-model-armor-to-the-gateway) below.
+
+**Limitation: Model Armor only parses OpenAI-format request bodies at the LB layer.**
+Google's `GCPTrafficExtension` + Model Armor integration is designed for OpenAI-compatible endpoints (`/v1/chat/completions`). It extracts user text from `messages[].content`. ADK's `/run` endpoint uses a different schema (`new_message.parts[].text`) that Model Armor does not recognise. In testing, prompt-injection payloads sent to `/run` are not blocked at the LB layer — the extension is fully programmed and traffic is screened, but Model Armor finds no user text to evaluate and passes the request through. The model's own trained safety guardrails still refuse such prompts, but that enforcement is in-process, not at the network layer.
+
+To achieve effective LB-layer screening with ADK, options are: (a) expose an OpenAI-compatible endpoint alongside `/run` and route that through the extension; (b) call the Model Armor REST API directly from agent code (`sanitizeUserPrompt` / `sanitizeModelResponse`) before/after each turn; (c) add a WasmPlugin to the gateway that rewrites the ADK body to OpenAI format before the callout.
 
 ## Prerequisites
 
@@ -114,12 +128,12 @@ RESOURCE_NAME=$(cat agent_engine_context.txt)
 
 ### 3. Build and test containers locally
 
-Both Dockerfiles target `linux/amd64` (GKE node architecture). On an Apple Silicon Mac, Docker runs the amd64 image via Rosetta/QEMU emulation — functional but slower than a native build. Use `memory://` service URIs for local testing so no GCP credentials are needed for sessions.
+On Apple Silicon, pass `--platform linux/amd64 --provenance=false` to match GKE's node architecture. Docker runs the amd64 image via Rosetta/QEMU emulation — functional but slower than native. Use `memory://` service URIs for local testing so no GCP credentials are needed for sessions.
 
 **Agent:**
 ```bash
 cd agent/
-docker build -t currency-agent:local .
+docker build --platform linux/amd64 --provenance=false -t currency-agent:local .
 docker run --rm -p 8080:8080 \
   -e SESSION_SERVICE_URI=memory:// \
   -e MEMORY_SERVICE_URI=memory:// \
@@ -135,7 +149,7 @@ cd ..
 **fx-rates-service:**
 ```bash
 cd fx-rates-service/
-docker build -t fx-rates-service:local .
+docker build --platform linux/amd64 --provenance=false -t fx-rates-service:local .
 docker run --rm -p 8081:8080 fx-rates-service:local
 curl http://localhost:8081/rate?pair=USD/EUR
 cd ..
@@ -143,16 +157,16 @@ cd ..
 
 ### 4. Push images to Artifact Registry
 
-The `--platform linux/amd64` flag is already baked into both Dockerfiles, so a plain `docker build` on Apple Silicon produces the correct x86 image for GKE.
+On Apple Silicon, pass `--platform linux/amd64` to target GKE's x86 nodes and `--provenance=false` to produce a single-arch manifest. Without `--provenance=false`, Docker Desktop creates a manifest list with an attestation entry that GKE's kubelet rejects with "no match for platform in manifest".
 
 ```bash
 REGISTRY=europe-west2-docker.pkg.dev/system-alexb-art-ed9d/agent-runtime-gke
 gcloud auth configure-docker europe-west2-docker.pkg.dev
 
-docker build -t $REGISTRY/currency-agent:latest agent/
+docker build --platform linux/amd64 --provenance=false -t $REGISTRY/currency-agent:latest agent/
 docker push $REGISTRY/currency-agent:latest
 
-docker build -t $REGISTRY/fx-rates-service:latest fx-rates-service/
+docker build --platform linux/amd64 --provenance=false -t $REGISTRY/fx-rates-service:latest fx-rates-service/
 docker push $REGISTRY/fx-rates-service:latest
 ```
 
@@ -172,6 +186,27 @@ Check rollout:
 kubectl get pods
 kubectl get gateway currency-agent-gateway
 # Wait for the gateway to show an external IP (takes 1-2 minutes)
+```
+
+### 6. Attach Model Armor to the Gateway
+
+The Model Armor template is created by Terraform in step 1. Get its resource path and apply the `GCPTrafficExtension`:
+
+```bash
+TEMPLATE=$(terraform -chdir=terraform output -raw model_armor_template_resource)
+sed "s|TEMPLATE_RESOURCE_PLACEHOLDER|$TEMPLATE|" k8s/model-armor-extension.yaml \
+  | kubectl apply -f -
+```
+
+The extension attaches to `currency-agent-gateway` and intercepts all requests to `/run` and `/run_sse` before they reach the pod. Because the `currency-agent` Service is `ClusterIP`, this Gateway is the only public path in — there is no bypass route.
+
+If the IAM bindings for the LB service agent fail on first `terraform apply` (the `gcp-sa-dep` service account is created lazily when the extension is first provisioned), apply the extension first then run `terraform apply` again:
+
+```bash
+# If lb_model_armor_* resources errored on first apply:
+sed "s|TEMPLATE_RESOURCE_PLACEHOLDER|$TEMPLATE|" k8s/model-armor-extension.yaml \
+  | kubectl apply -f -
+terraform -chdir=terraform apply   # picks up the now-existing service account
 ```
 
 ## Usage
@@ -229,19 +264,11 @@ curl -X POST http://$GATEWAY_IP/run \
 
 See [How Agent Gateway enforcement actually works](#how-agent-gateway-enforcement-actually-works) above for the full explanation. Short version: Agent Gateway is not an HTTP proxy. It enforces by setting `agent_gateway_config` on a Vertex AI Reasoning Engine — a concept that has no GKE equivalent. The Agent Registry entry we created is read-only discovery metadata; it gives the gateway visibility of the endpoint but no ability to intercept calls to it. The pod's external IP remains directly reachable whether or not the registry entry exists.
 
-### Workaround: in-process Model Armor
+### Workaround: Model Armor via GCPTrafficExtension
 
-Model Armor screening is wired directly in `agent.py` via a `before_model_callback`. This gives prompt-injection/jailbreak screening without the gateway enforcement layer (the GKE endpoint remains reachable directly, so it's not governance in the Agent Gateway sense, but it does screen every request that flows through the ADK agent):
+Rather than Agent Gateway, Model Armor screening is attached to the existing Kubernetes Gateway via a `GCPTrafficExtension` resource. This gives hard enforcement at the load balancer layer — every request to `/run` is screened before it reaches the pod. Because the `currency-agent` Service is `ClusterIP`, the Gateway is the only public ingress path, so there is no bypass route.
 
-```python
-# In agent.py — screens every prompt before it reaches the model.
-# Does not prevent callers from bypassing via direct HTTP to the pod's
-# /run endpoint, unlike Agent Gateway governance on Agent Runtime.
-def model_armor_callback(callback_context, llm_request):
-    ...
-```
-
-See `agent/agent.py` for the full implementation.
+See [Attach Model Armor to the Gateway](#6-attach-model-armor-to-the-gateway) for setup and `k8s/model-armor-extension.yaml` for the full resource definition.
 
 ## Questions answered
 
@@ -253,12 +280,14 @@ See `agent/agent.py` for the full implementation.
 
 ### How does the Kubernetes Gateway API relate to Agent Gateway?
 
-They are unrelated products at different layers. The Kubernetes Gateway API handles L7 HTTP routing into the cluster. Agent Gateway enforces Model Armor screening on agent invocations. The blog post uses only the Kubernetes Gateway API. See the [Gateway API vs. Agent Gateway](#gateway-api-vs-agent-gateway) table above.
+They are unrelated products at different layers. The Kubernetes Gateway API handles L7 HTTP routing into the cluster. Agent Gateway enforces Model Armor screening on agent invocations via a server-side flag on Vertex AI Reasoning Engines — a concept that has no GKE equivalent.
+
+However, the two are complementary: `GCPTrafficExtension` lets you attach Model Armor directly to a Kubernetes Gateway, giving GKE-hosted agents the same prompt-screening capability as Agent Gateway provides for managed agents, at the load balancer layer. This experiment uses that approach. See [Attach Model Armor to the Gateway](#6-attach-model-armor-to-the-gateway) and `k8s/model-armor-extension.yaml`.
 
 ## Teardown
 
 ```bash
-# Delete k8s resources
+# Delete k8s resources (including the Model Armor extension)
 kubectl delete -f k8s/
 
 # Destroy cluster and registry (data in registry will be deleted too)

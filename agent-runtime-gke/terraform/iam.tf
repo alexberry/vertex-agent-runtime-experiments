@@ -5,6 +5,16 @@
 # Without this annotation the GKE metadata server does not exchange the KSA
 # OIDC token for the GSA token and Vertex AI calls return 403.
 
+locals {
+  # Platform-managed service agent used by GKE's load balancer traffic
+  # extensions (GCPTrafficExtension) to make callouts to external services
+  # such as Model Armor. Created automatically when the first
+  # GCPTrafficExtension is applied; the IAM binding may fail on a brand-new
+  # project if the SA hasn't been created yet -- run `terraform apply` a
+  # second time after deploying k8s/model-armor-extension.yaml.
+  lb_traffic_extension_agent = "service-${data.google_project.current.number}@gcp-sa-dep.iam.gserviceaccount.com"
+}
+
 resource "google_service_account" "agent" {
   account_id   = "currency-agent"
   display_name = "Currency Agent (GKE Workload Identity)"
@@ -35,4 +45,26 @@ resource "google_service_account_iam_member" "ksa_wi_user" {
 
 output "agent_gsa_email" {
   value = google_service_account.agent.email
+}
+
+# Load balancer service agent needs Model Armor permissions so the
+# GCPTrafficExtension can call out to the Model Armor API at the LB layer.
+resource "google_project_iam_member" "lb_model_armor_callout_user" {
+  project    = var.project
+  role       = "roles/modelarmor.calloutUser"
+  member     = "serviceAccount:${local.lb_traffic_extension_agent}"
+  depends_on = [google_project_service.model_armor]
+}
+
+resource "google_project_iam_member" "lb_model_armor_user" {
+  project    = var.project
+  role       = "roles/modelarmor.user"
+  member     = "serviceAccount:${local.lb_traffic_extension_agent}"
+  depends_on = [google_project_service.model_armor]
+}
+
+resource "google_project_iam_member" "lb_service_usage_consumer" {
+  project = var.project
+  role    = "roles/serviceusage.serviceUsageConsumer"
+  member  = "serviceAccount:${local.lb_traffic_extension_agent}"
 }
