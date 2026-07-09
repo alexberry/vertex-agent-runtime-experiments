@@ -32,7 +32,9 @@ Hands-on experiments with Vertex AI Agent Runtime, ADK, Agent Gateway, and GKE s
 
 **Goal:** Put a Client-to-Agent Agent Gateway in front of the ADK agent and attach a Model Armor template to screen prompt-injection and jailbreak attempts. Answer three open questions from the LangChain experiment: what is an agent gateway, how to host it securely, and what is "Agent Armor".
 
-**Outcome:** Achieved. All three questions resolved: Agent Gateway is the networking/governance front door; secure public hosting goes through Client-to-Agent gateway rather than exposing Agent Runtime directly; "Agent Armor" is a naming confusion — the product is Model Armor. Confirmed with live evidence: prompt-injection attempt returns `403 PERMISSION_DENIED` when gateway is bound; only a soft model refusal after teardown. Evals remain out of scope.
+**Outcome:** Achieved, with one open question surfaced. All three questions resolved: Agent Gateway is the networking/governance front door; secure public hosting goes through Client-to-Agent gateway rather than exposing Agent Runtime directly; "Agent Armor" is a naming confusion — the product is Model Armor. Confirmed with live evidence: prompt-injection attempt returns `403 PERMISSION_DENIED` when gateway is bound; only a soft model refusal after teardown. Evals remain out of scope.
+
+**Open question:** binding an agent to the gateway via `agent_gateway_config` silently disables Cloud Trace inside the Agent Runtime (OTel initialisation is skipped entirely; confirmed by before/after comparison on the same agent). Whether the Agent Gateway captures equivalent traces, and whether there is a way to run both simultaneously, is not yet investigated — see [Known limitation](./agent-gateway-armor/README.md#known-limitation-gateway-binding-disables-agent-runtime-telemetry) in the experiment README.
 
 ---
 

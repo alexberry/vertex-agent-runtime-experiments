@@ -94,6 +94,31 @@ Answers the open questions from [intro-agent-runtime/README.md](../intro-agent-r
 
 "How to run evals?" remains open — out of scope for this experiment.
 
+## Known limitation: gateway binding disables Agent Runtime telemetry
+
+Binding an agent to an Agent Gateway via `agent_gateway_config` silently disables Cloud Trace / OpenTelemetry inside the Agent Runtime container.
+
+Confirmed by deploying the same agent code and requirements twice in the same project, back-to-back:
+
+| State | Startup OTel warnings | Console telemetry status |
+|---|---|---|
+| No gateway bound | `WARNING: telemetry enabled but proceeding without ...` (3 packages) | Enabled |
+| Gateway bound | No OTel warnings at all | Disabled |
+
+The absence of warnings when the gateway is bound is not a fix — it means telemetry initialisation is skipped entirely rather than running with partial instrumentation. The ADK runtime appears to detect `agent_gateway_config` and defer observability to the gateway layer. Whether the Agent Gateway itself captures equivalent trace data is an open question (see below).
+
+## Open questions
+
+**Can telemetry and gateway mode coexist?**
+
+When `agent_gateway_config` is set, the Agent Runtime skips its own OTel initialisation. It is not yet known whether:
+
+* The Agent Gateway captures its own equivalent traces (latency, tool calls, model invocations) that appear in Cloud Trace under a different resource type
+* There is an explicit env var or SDK config that re-enables OTel inside the Agent Runtime even when the gateway is bound
+* The platform intentionally prohibits dual telemetry (to avoid double-counting or conflicting trace roots) and the gateway trace is the intended replacement
+
+**To investigate:** deploy an agent with `agent_gateway_config` set, send a query, and check Cloud Trace for entries originating from the Agent Gateway resource rather than the Reasoning Engine. Also check whether setting `GOOGLE_CLOUD_ENABLE_DIRECT_PATH=false` or similar OTel env vars in the agent's `config` restores Agent Runtime traces alongside gateway routing.
+
 ## Tooling used to build this
 
 * [terraform-mcp-server](https://github.com/hashicorp/terraform-mcp-server) — used to pull live `hashicorp/google` provider docs (`get_provider_details` / `search_providers`) for `google_network_services_agent_gateway`, `google_model_armor_template`, `google_network_services_authz_extension`, and `google_network_security_authz_policy` instead of trusting blog posts or reference modules pinned to `google-nightly`. **If you're picking up this experiment (human or agent) and need to change the Terraform**: query this MCP server first — Agent Gateway and Model Armor are Preview surfaces and field names/nesting have already shifted once during this build (e.g. `mtls_endpoint` is nested under `agent_gateway_card[0]`, not top-level; `registries` entries have no `/v1/` version segment despite what the argument description implies — trust the resource's own example usage over its prose description when the two disagree).
