@@ -1,0 +1,8 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-config
+data:
+  # Populated after provision_memory.py runs. Replace the placeholder with the
+  # actual resource name from agent_engine_context.txt before applying.
+  agent_engine_resource_name: "projects/834531922239/locations/europe-west2/reasoningEngines/8754162046771134464"

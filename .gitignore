@@ -1,5 +1,6 @@
 .venv/
 agent_engine.txt
+agent_engine_context.txt
 .idea/
 .terraform/
 .terraform.lock.hcl

@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: currency-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: currency-agent
+  template:
+    metadata:
+      labels:
+        app: currency-agent
+    spec:
+      serviceAccountName: default
+      containers:
+        - name: currency-agent
+          image: europe-west2-docker.pkg.dev/system-alexb-art-ed9d/agent-runtime-gke/currency-agent:latest
+          ports:
+            - containerPort: 8080
+          env:
+            - name: GOOGLE_CLOUD_PROJECT
+              value: "system-alexb-art-ed9d"
+            - name: GOOGLE_CLOUD_LOCATION
+              value: "europe-west2"
+            - name: GOOGLE_GENAI_USE_VERTEXAI
+              value: "1"
+            - name: AGENT_ENGINE_RESOURCE_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: agent-config
+                  key: agent_engine_resource_name
+            - name: SESSION_SERVICE_URI
+              value: "agentengine://$(AGENT_ENGINE_RESOURCE_NAME)"
+            - name: MEMORY_SERVICE_URI
+              value: "agentengine://$(AGENT_ENGINE_RESOURCE_NAME)"
+          readinessProbe:
+            httpGet:
+              path: /list-apps
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10

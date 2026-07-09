@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: currency-agent
+spec:
+  selector:
+    app: currency-agent
+  ports:
+    - port: 80
+      targetPort: 8080
+  # ClusterIP only -- external traffic flows via the Kubernetes Gateway API
+  # resources in gateway.yaml / httproute.yaml, not directly through this Service.
+  type: ClusterIP

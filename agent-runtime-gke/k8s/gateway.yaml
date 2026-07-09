@@ -1,0 +1,16 @@
+# This is the Kubernetes Gateway API (gateway.networking.k8s.io) -- GKE's L7
+# load-balancer construct. It is UNRELATED to Google Cloud Agent Gateway
+# (the cross-agent governance product in agent-gateway-armor/).
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: currency-agent-gateway
+spec:
+  gatewayClassName: gke-l7-global-external-managed
+  listeners:
+    - name: http
+      port: 80
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same

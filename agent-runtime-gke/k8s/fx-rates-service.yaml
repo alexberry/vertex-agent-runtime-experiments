@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fx-rates-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: fx-rates-service
+  template:
+    metadata:
+      labels:
+        app: fx-rates-service
+    spec:
+      containers:
+        - name: fx-rates-service
+          image: europe-west2-docker.pkg.dev/system-alexb-art-ed9d/agent-runtime-gke/fx-rates-service:latest
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fx-rates-svc
+spec:
+  selector:
+    app: fx-rates-service
+  ports:
+    - port: 80
+      targetPort: 8080
+  # ClusterIP only -- reachable at fx-rates-svc.default.svc.cluster.local
+  # from within the cluster. No external IP, no Gateway/Ingress.
+  type: ClusterIP

@@ -1,0 +1,16 @@
+apiVersion: networking.gke.io/v1
+kind: HealthCheckPolicy
+metadata:
+  name: currency-agent
+  namespace: default
+spec:
+  default:
+    config:
+      type: HTTP
+      httpHealthCheck:
+        requestPath: /list-apps
+        port: 8080
+  targetRef:
+    group: ""
+    kind: Service
+    name: currency-agent
