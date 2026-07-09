@@ -1,6 +1,9 @@
 # Classic Workload Identity: create a GSA, bind IAM roles to it, then allow
-# the default KSA to impersonate it. The pod's SA is annotated (see README)
-# so the GKE metadata server exchanges the KSA OIDC token for the GSA token.
+# the default KSA to impersonate it. After terraform apply, annotate the KSA:
+#   kubectl annotate serviceaccount default --namespace default \
+#     iam.gke.io/gcp-service-account=$(terraform output -raw agent_gsa_email)
+# Without this annotation the GKE metadata server does not exchange the KSA
+# OIDC token for the GSA token and Vertex AI calls return 403.
 
 resource "google_service_account" "agent" {
   account_id   = "currency-agent"

@@ -55,11 +55,20 @@ terraform apply
 cd ..
 ```
 
-This creates the Autopilot cluster and Artifact Registry repo. Takes ~5 minutes for Autopilot to finish provisioning.
+This creates the Autopilot cluster, Artifact Registry repo, a `currency-agent` Google Service Account with `roles/aiplatform.user`, and the Workload Identity binding that allows the default KSA to impersonate it. Takes ~5 minutes for Autopilot to finish provisioning.
 
 Configure `kubectl`:
 ```bash
 gcloud container clusters get-credentials agent-runtime-gke --region europe-west2 --project system-alexb-art-ed9d
+```
+
+Annotate the default Kubernetes Service Account with the GSA email output by Terraform. This is what activates the Workload Identity exchange — without it pods fall back to the node SA and Vertex AI calls return 403:
+
+```bash
+GSA=$(terraform -chdir=terraform output -raw agent_gsa_email)
+kubectl annotate serviceaccount default \
+  --namespace default \
+  iam.gke.io/gcp-service-account="$GSA"
 ```
 
 ### 2. Provision memory (Agent Engine context)
