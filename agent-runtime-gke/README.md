@@ -24,9 +24,35 @@ These are two completely different products that happen to share "gateway" in th
 | **API group** | `gateway.networking.k8s.io` | `networkservices.googleapis.com` (Agent Gateway resource) |
 | **Objects** | `Gateway`, `HTTPRoute`, `GatewayClass` | `AgentGateway`, `AuthzPolicy`, `AuthzExtension` |
 | **Purpose** | Route external HTTP traffic into the cluster | Enforce Model Armor screening on agent-to-agent traffic |
+| **Enforcement point** | GKE control plane (L7 routing rules) | Vertex AI platform (server-side flag on Reasoning Engine) |
 | **This experiment** | Used in `k8s/gateway.yaml` + `httproute.yaml` | Spike attempted — see Agent Gateway Spike below |
 
 The blog post this experiment is based on uses the Kubernetes Gateway API. It makes no mention of the Agent Gateway product.
+
+### How Agent Gateway enforcement actually works
+
+Agent Gateway is **not an HTTP proxy** that sits in front of an endpoint. Enforcement is anchored to the Vertex AI platform via a flag (`agent_gateway_config`) set server-side on a Reasoning Engine resource. When that flag is present, Vertex AI refuses to invoke the engine without routing through the gateway first:
+
+```
+client.agent_engines.get(name=…).stream_query(…)   ← Vertex AI SDK
+  → Vertex AI detects agent_gateway_config on the Reasoning Engine
+    → routes call through Agent Gateway (Model Armor screening)
+      → Reasoning Engine executes
+```
+
+A GKE pod has no equivalent enforcement point:
+- It is not a Reasoning Engine — there is no `agent_gateway_config` to set
+- The Agent Registry `services` entry (used to register a GKE endpoint) is discovery-only; Agent Gateway reads the registry to find agents, but cannot intercept HTTP calls to them
+- The pod's external IP remains directly reachable regardless of what the registry says
+
+This is why governance is tied to the hosting layer, not to the network path:
+
+| Host | Agent Gateway governance? | Why |
+|---|---|---|
+| Vertex AI Agent Engine (managed) | Yes | `agent_gateway_config` on Reasoning Engine; Vertex AI enforces it server-side |
+| GKE pod | No | No Reasoning Engine resource; no server-side enforcement point to anchor to |
+
+If governance on a GKE-hosted agent is required, the alternatives are: an in-process `before_model_callback` calling the Model Armor API directly (demonstrated below), an Istio/ASM sidecar that screens traffic at the mesh layer, or Cloud Armor on the load balancer (coarser — IP/rate limiting, not prompt-content screening).
 
 ## Prerequisites
 
@@ -201,18 +227,7 @@ curl -X POST http://$GATEWAY_IP/run \
 
 ### Why governance still doesn't work
 
-The Agent Gateway governs traffic by enforcing that calls to a Reasoning Engine **must** go through the gateway (`agent_gateway_config` set server-side on the Reasoning Engine). The call path is:
-
-```
-client.agent_engines.get(name=…).stream_query(…)   ← Vertex AI SDK
-  → Agent Gateway (Model Armor screening)
-    → Reasoning Engine
-```
-
-For a GKE agent, there is no equivalent enforcement point:
-- The `agent_gateway_config` binding is a Vertex AI Reasoning Engine concept — it has no counterpart in the Agent Registry `services` API or in GKE
-- The external IP (`http://34.160.136.215`) remains publicly reachable regardless of whether a gateway entry exists
-- The Agent Registry is a **discovery** service, not an invocation proxy; the gateway cannot rewrite arbitrary HTTP traffic to/from a GKE pod
+See [How Agent Gateway enforcement actually works](#how-agent-gateway-enforcement-actually-works) above for the full explanation. Short version: Agent Gateway is not an HTTP proxy. It enforces by setting `agent_gateway_config` on a Vertex AI Reasoning Engine — a concept that has no GKE equivalent. The Agent Registry entry we created is read-only discovery metadata; it gives the gateway visibility of the endpoint but no ability to intercept calls to it. The pod's external IP remains directly reachable whether or not the registry entry exists.
 
 ### Workaround: in-process Model Armor
 
